@@ -1,21 +1,17 @@
 require('dotenv').config(); 
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg'); // <-- NUEVA LIBRERÍA DE POSTGRESQL
+const { Pool } = require('pg');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 // =======================================================
-// CONEXIÓN A SUPABASE (POSTGRESQL) - MODO SEGURO
+// CONEXIÓN A SUPABASE (POSTGRESQL) - MODO SEGURO DEFINITIVO
 // =======================================================
 const pool = new Pool({
-    host: 'aws-0-sa-east-1.pooler.supabase.com',
-    port: 6543,
-    database: 'postgres',
-    user: 'postgres.ixuhvkxtzlraaznyjwdt',
-    password: 'oximedic2026',
+    connectionString: "postgresql://postgres.ixuhvkxtzlraaznyjwdt:oximedic2026@aws-1-sa-east-1.pooler.supabase.com:6543/postgres",
     ssl: {
         rejectUnauthorized: false
     }

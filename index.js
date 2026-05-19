@@ -12,7 +12,7 @@ app.use(express.json());
 // =======================================================
 const pool = new Pool({
   // REEMPLAZA [YOUR-PASSWORD] CON TU CONTRASEÑA DE SUPABASE (SIN LOS CORCHETES)
-connectionString: "postgresql://postgres:oximedic2026@db.ixuhvkxtzlraaznyjwdt.supabase.co:5432/postgres?sslmode=require&ipv4=true",
+connectionString: "postgresql://postgres.ixuhvkxtzlraaznyjwdt:oximedic2026@15.228.172.195:6543/postgres?pgbouncer=true",
   ssl: { rejectUnauthorized: false } 
 });
 

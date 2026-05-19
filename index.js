@@ -12,7 +12,7 @@ app.use(express.json());
 // CONEXIÓN A SUPABASE (POSTGRESQL)
 // =======================================================
 const pool = new Pool({
-    connectionString: "postgresql://postgres:oximedic2026@aws-0-sa-east-1.pooler.supabase.com:5432/postgres",
+    connectionString: "postgresql://postgres.ixuhvkxtzlraaznyjwdt:oximedic2026@aws-0-sa-east-1.pooler.supabase.com:6543/postgres",
     ssl: {
         rejectUnauthorized: false
     }

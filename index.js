@@ -1,4 +1,3 @@
-require('dns').setDefaultResultOrder('ipv4first');
 require('dotenv').config(); 
 const express = require('express');
 const cors = require('cors');
@@ -9,10 +8,14 @@ app.use(cors());
 app.use(express.json());
 
 // =======================================================
-// CONEXIÓN A SUPABASE (POSTGRESQL)
+// CONEXIÓN A SUPABASE (POSTGRESQL) - MODO SEGURO
 // =======================================================
 const pool = new Pool({
-    connectionString: "postgresql://postgres.ixuhvkxtzlraaznyjwdt:oximedic2026@aws-0-sa-east-1.pooler.supabase.com:6543/postgres",
+    host: 'aws-0-sa-east-1.pooler.supabase.com',
+    port: 6543,
+    database: 'postgres',
+    user: 'postgres.ixuhvkxtzlraaznyjwdt',
+    password: 'oximedic2026',
     ssl: {
         rejectUnauthorized: false
     }
@@ -23,10 +26,10 @@ async function iniciarServidor() {
     const test = await pool.query('SELECT NOW()');
     console.log('✅ Conectado a la base de datos Supabase exitosamente.');
 
-   const puerto = process.env.PORT || 3000;
-   app.listen(puerto, () => {
-       console.log('Servidor API corriendo...');
-}  );
+    const puerto = process.env.PORT || 3000;
+    app.listen(puerto, () => {
+        console.log(`Servidor API corriendo en el puerto ${puerto}...`);
+    });
   } catch (error) {
     console.error('❌ Error crítico al conectar a Supabase: ', error);
   }
@@ -179,7 +182,7 @@ app.delete('/api/productos/:id', async (req, res) => {
 // =======================================================
 app.post('/api/ventas', async (req, res) => {
   const { id_usuario, total, carrito } = req.body;
-  const client = await pool.connect(); // <-- Inicio de transacción
+  const client = await pool.connect(); 
   try {
     await client.query('BEGIN');
     const resultVenta = await client.query(
@@ -206,7 +209,7 @@ app.post('/api/ventas', async (req, res) => {
     console.error('Error al registrar la venta:', error);
     res.status(500).json({ exito: false, mensaje: 'Error al procesar la venta' });
   } finally {
-    client.release(); // <-- Fin de transacción
+    client.release(); 
   }
 });
 

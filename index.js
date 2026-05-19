@@ -1,3 +1,4 @@
+require('dns').setDefaultResultOrder('ipv4first');
 require('dotenv').config(); 
 const express = require('express');
 const cors = require('cors');
@@ -12,7 +13,7 @@ app.use(express.json());
 // =======================================================
 const pool = new Pool({
   // REEMPLAZA [YOUR-PASSWORD] CON TU CONTRASEÑA DE SUPABASE (SIN LOS CORCHETES)
-connectionString: "postgresql://postgres.ixuhvkxtzlraaznyjwdt:oximedic2026@15.228.172.195:6543/postgres?pgbouncer=true",
+connectionString: "postgresql://postgres:oximedic2026@db.ixuhvkxtzlraaznyjwdt.supabase.co:5432/postgres",
   ssl: { rejectUnauthorized: false } 
 });
 
@@ -21,10 +22,10 @@ async function iniciarServidor() {
     const test = await pool.query('SELECT NOW()');
     console.log('✅ Conectado a la base de datos Supabase exitosamente.');
 
-    const puerto = process.env.PORT || 3000;
-    app.listen(puerto, () => {
-      console.log(`🚀 Servidor API de OXIMEDIC corriendo en el puerto ${puerto}`);
-    });
+   const puerto = process.env.PORT || 3000;
+   app.listen(puerto, () => {
+       console.log('Servidor API corriendo...');
+}  );
   } catch (error) {
     console.error('❌ Error crítico al conectar a Supabase: ', error);
   }

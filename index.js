@@ -77,8 +77,8 @@ async function iniciarServidor() {
     
         const alquileres = await pool.query(`
           SELECT a.Fecha_Salida as "FECHA",
-                 COALESCE(u1.Nombre_Completo, '') as "CAJERO_SALIDA",
-                 COALESCE(c.Nombre, '') || ' ' || COALESCE(c.Apellido, '') as "CLIENTE",
+                 COALESCE(u1.Nombre_Completo, '') as "CAJERO",
+                 COALESCE(c.Nombre, '') || ' ' || COALESCE(c.Apellido, '') as "NOMBRE_CLIENTE",
                  p.Nombre_Producto as "NOMBRE_PRODUCTO",
                  COALESCE(GREATEST(a.Fecha_Devolucion_Real::date - a.Fecha_Salida::date, 1) * a.Costo_Por_Dia, 0) as "TOTAL_COBRADO"
           FROM Alquileres a

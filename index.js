@@ -205,7 +205,7 @@ app.get('/api/clientes/ultimo-servicio/:ci', async (req, res) => {
 
 app.get('/api/historial-domicilio/:ci', async (req, res) => {
   try {
-    const resultado = await pool.query(`SELECT Fecha_Recarga, Direccion_Domicilio FROM Recargas WHERE Cliente_CI = $1 AND Es_Domicilio = TRUE ORDER BY Fecha_Recarga DESC`, [req.params.ci]);
+    const resultado = await pool.query(`SELECT r.Fecha_Recarga AS "FECHA", c.Direccion_Domicilio AS "DIRECCION_DOMICILIO", r.Costo_Transporte AS "COSTO_TRANSPORTE" FROM Recargas r LEFT JOIN Clientes c ON r.Cliente_CI = c.Carnet_Identidad WHERE r.Cliente_CI = $1 AND r.Es_Domicilio = TRUE ORDER BY r.Fecha_Recarga DESC`, [req.params.ci]);
     res.json({ exito: true, historial: resultado.rows });
   } catch (error) { res.status(500).json({ exito: false }); }
 });

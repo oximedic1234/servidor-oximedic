@@ -1,7 +1,12 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// SOLUCION DEFINITIVA ZONA HORARIA
+// Evita que Node.js convierta las fechas a UTC (Render) o Local (XAMPP)
+types.setTypeParser(1114, str => str); // timestamp without time zone
+types.setTypeParser(1184, str => str); // timestamp with time zone
 
 const app = express();
 app.use(cors());
@@ -20,6 +25,11 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
+// Forzar zona horaria de Bolivia en la base de datos
+pool.on('connect', (client) => {
+  client.query("SET TIME ZONE 'America/La_Paz'").catch(err => console.log('Error setting timezone', err));
+});
+
 async function iniciarServidor() {
   try {
     const resultado = await pool.query('SELECT current_setting(\'search_path\') AS sp');
@@ -29,22 +39,24 @@ async function iniciarServidor() {
       try {
         const { periodo, mes, anio, rangoInicio, rangoFin, id_empleado } = req.query;
         let fechaFiltro = '';
-        
-        if (periodo === 'rango' && rangoInicio && rangoFin) {
-          fechaFiltro = `Fecha BETWEEN '${rangoInicio}' AND '${rangoFin}'`;
-        } else if (periodo === 'HOY') {
-          fechaFiltro = 'DATE(Fecha) = CURRENT_DATE';
-        } else if (periodo === 'ESTE_MES') {
-          fechaFiltro = 'EXTRACT(MONTH FROM Fecha) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM Fecha) = EXTRACT(YEAR FROM CURRENT_DATE)';
-        } else if (periodo === 'MES_ANTERIOR') {
-          fechaFiltro = 'EXTRACT(MONTH FROM Fecha) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL \'1 month\') AND EXTRACT(YEAR FROM Fecha) = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL \'1 month\')';
-        } else if (periodo === 'OTRO_MES' && mes && anio) {
-          fechaFiltro = `EXTRACT(MONTH FROM Fecha) = ${mes} AND EXTRACT(YEAR FROM Fecha) = ${anio}`;
-        } else if (periodo === 'TODO') {
-          fechaFiltro = '1=1';
-        } else {
-          fechaFiltro = 'DATE(Fecha) = CURRENT_DATE';
-        }
+          
+          if (periodo === 'rango' && rangoInicio && rangoFin) {
+            const cleanInicio = rangoInicio.split('T')[0].split(' ')[0];
+            const cleanFin = rangoFin.split('T')[0].split(' ')[0];
+            fechaFiltro = `(Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz' BETWEEN '${cleanInicio} 00:00:00' AND '${cleanFin} 23:59:59'`;
+          } else if (periodo === 'HOY') {
+            fechaFiltro = `DATE((Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/La_Paz')`;
+          } else if (periodo === 'ESTE_MES') {
+            fechaFiltro = `EXTRACT(MONTH FROM (Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = EXTRACT(MONTH FROM CURRENT_TIMESTAMP AT TIME ZONE 'America/La_Paz') AND EXTRACT(YEAR FROM (Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE 'America/La_Paz')`;
+          } else if (periodo === 'MES_ANTERIOR') {
+            fechaFiltro = `EXTRACT(MONTH FROM (Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = EXTRACT(MONTH FROM (CURRENT_TIMESTAMP AT TIME ZONE 'America/La_Paz') - INTERVAL '1 month') AND EXTRACT(YEAR FROM (Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = EXTRACT(YEAR FROM (CURRENT_TIMESTAMP AT TIME ZONE 'America/La_Paz') - INTERVAL '1 month')`;
+          } else if (periodo === 'OTRO_MES' && mes && anio) {
+            fechaFiltro = `EXTRACT(MONTH FROM (Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = ${mes} AND EXTRACT(YEAR FROM (Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = ${anio}`;
+          } else if (periodo === 'TODO') {
+            fechaFiltro = '1=1';
+          } else {
+            fechaFiltro = `DATE((Fecha AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/La_Paz')`;
+          }
     
         let filtroCajeroVentas = '';
         if (id_empleado && id_empleado !== 'TODOS') {
@@ -55,7 +67,7 @@ async function iniciarServidor() {
         if (id_empleado && id_empleado !== 'TODOS') {
           filtroCajeroAlquileres = ` AND (a.ID_Usuario = ${id_empleado} OR a.ID_Usuario_Recibe = ${id_empleado}) `;
         }
-
+        
         let filtroCajeroAlquileresRecibe = '';
         if (id_empleado && id_empleado !== 'TODOS') {
           filtroCajeroAlquileresRecibe = ` AND a.ID_Usuario_Recibe = ${id_empleado}`;
@@ -67,7 +79,7 @@ async function iniciarServidor() {
         }
     
         const ventas = await pool.query(`
-          SELECT v.Fecha_Venta as "FECHA", 
+          SELECT TO_CHAR((v.Fecha_Venta AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz', 'DD/MM/YYYY HH12:MI AM') as "FECHA", 
                  COALESCE(u.Nombre_Completo, '') as "CAJERO",
                  COALESCE(p.Nombre_Producto, 'Botellon') as "PRODUCTO",
                  COALESCE(d.Cantidad, 1) as "CANTIDAD",
@@ -81,8 +93,8 @@ async function iniciarServidor() {
         `);
     
         const alquileres = await pool.query(`
-          SELECT a.Fecha_Salida as "FECHA_SALIDA",
-                 a.Fecha_Devolucion_Real as "FECHA_DEVOLUCION",
+          SELECT TO_CHAR((a.Fecha_Salida AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz', 'DD/MM/YYYY HH12:MI AM') as "FECHA_SALIDA",
+                   TO_CHAR((a.Fecha_Devolucion_Real AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz', 'DD/MM/YYYY HH12:MI AM') as "FECHA_DEVOLUCION",
                  COALESCE(u1.Nombre_Completo, '') as "CAJERO",
                  COALESCE(u2.Nombre_Completo, '') as "CAJERO_RECEPCION",
                  c.Carnet_Identidad as "CI_CLIENTE",
@@ -95,14 +107,14 @@ async function iniciarServidor() {
           LEFT JOIN Usuarios u2 ON a.ID_Usuario_Recibe = u2.ID_Usuario
           LEFT JOIN Clientes c ON a.ID_Cliente = c.ID_Cliente
           LEFT JOIN Productos p ON a.ID_Producto = p.ID_Producto
-          WHERE ${fechaFiltro.replace(/Fecha/g, 'a.Fecha_Salida')} 
+          WHERE ${fechaFiltro.replace(/Fecha/g, 'a.Fecha_Salida')} AND a.Estado_Alquiler != 'CANCELADO' 
             ${filtroCajeroAlquileres}
           ORDER BY a.Fecha_Salida DESC
         `);
-
+    
         const alquileresDevueltos = await pool.query(`
-          SELECT a.Fecha_Salida as "FECHA_SALIDA",
-                 a.Fecha_Devolucion_Real as "FECHA_DEVOLUCION",
+          SELECT TO_CHAR((a.Fecha_Salida AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz', 'DD/MM/YYYY HH12:MI AM') as "FECHA_SALIDA",
+                   TO_CHAR((a.Fecha_Devolucion_Real AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz', 'DD/MM/YYYY HH12:MI AM') as "FECHA_DEVOLUCION",
                  COALESCE(u1.Nombre_Completo, '') as "CAJERO",
                  COALESCE(u2.Nombre_Completo, '') as "CAJERO_RECEPCION",
                  c.Carnet_Identidad as "CI_CLIENTE",
@@ -120,11 +132,11 @@ async function iniciarServidor() {
             ${filtroCajeroAlquileresRecibe}
           ORDER BY a.Fecha_Devolucion_Real DESC
         `);
-    
+
         let recargasResult = { rows: [] };
         try {
           recargasResult = await pool.query(`
-            SELECT r.Fecha_Recarga as "FECHA",
+            SELECT TO_CHAR((r.Fecha_Recarga AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz', 'DD/MM/YYYY HH12:MI AM') as "FECHA",
                    COALESCE(u.Nombre_Completo, '') as "CAJERO",
                    r.Nombre_Botellon as "BOTELLON",
                    r.Costo as "COSTO",
@@ -138,6 +150,24 @@ async function iniciarServidor() {
             ORDER BY r.Fecha_Recarga DESC
           `);
         } catch (e) { }
+
+        let facturasResult = { rows: [] };
+        try {
+          let filtroCajeroFacturas = '';
+          if (id_empleado && id_empleado !== 'TODOS') {
+            filtroCajeroFacturas = ` AND f.ID_Usuario = ${id_empleado}`;
+          }
+          facturasResult = await pool.query(`
+            SELECT f.ID_Factura as "ID_FACTURA", f.Nro_Factura as "NRO_FACTURA", f.Tipo_Transaccion as "TIPO_TRANSACCION", 
+                   TO_CHAR((f.Fecha_Emision AT TIME ZONE 'UTC') AT TIME ZONE 'America/La_Paz', 'DD/MM/YYYY HH12:MI AM') as "FECHA_EMISION",
+                   f.NIT_Cliente as "NIT_CLIENTE", f.Razon_Social as "RAZON_SOCIAL", f.Monto_Total as "MONTO_TOTAL",
+                   COALESCE(u.Nombre_Completo, '') as "CAJERO"
+            FROM Facturas f
+            LEFT JOIN Usuarios u ON f.ID_Usuario = u.ID_Usuario
+            WHERE ${fechaFiltro.replace(/Fecha/g, 'f.Fecha_Emision')} ${filtroCajeroFacturas}
+            ORDER BY f.Fecha_Emision DESC
+          `);
+        } catch (e) { console.error('Error fetching facturas:', e); }
     
         res.json({
           exito: true,
@@ -145,6 +175,7 @@ async function iniciarServidor() {
           alquileres: alquileres.rows,
           alquileres_devueltos: alquileresDevueltos.rows,
           recargas: recargasResult.rows,
+          facturas: facturasResult.rows,
           inventario: [] 
         });
       } catch (error) {
@@ -153,7 +184,116 @@ async function iniciarServidor() {
       }
     });
 
-    app.listen(process.env.PORT || 3000, () => console.log(`Servidor ${process.env.EMPRESA_NOMBRE || 'OXIMEDIC'} corriendo en puerto ${process.env.PORT || 3000}...`));
+    
+  app.get('/api/facturas', async (req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT f.ID_Factura, f.Nro_Factura, f.Tipo_Transaccion, f.Fecha_Emision, f.NIT_Cliente, f.Razon_Social, f.Monto_Total, u.Nombre_Completo AS "Cajero"
+        FROM Facturas f
+        LEFT JOIN Usuarios u ON f.ID_Usuario = u.ID_Usuario
+        ORDER BY f.Fecha_Emision DESC
+      `);
+      res.json({ exito: true, facturas: rows });
+    } catch (e) { res.status(500).json({ exito: false, error: error.message }); }
+  });
+
+  app.post('/api/facturas/nueva', async (req, res) => {
+    const { id_cliente, id_usuario, tipo_transaccion, nro_servicio, nit, razon_social, monto_total } = req.body;
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO ${SCHEMA}`);
+      await client.query('BEGIN');
+      
+      let actual_id_cliente = id_cliente;
+      if (nit && nit !== '0') {
+         const clientRes = await client.query('SELECT ID_Cliente FROM Clientes WHERE NIT_Facturacion = $1 OR Carnet_Identidad = $1 LIMIT 1', [nit]);
+         if (clientRes.rows.length > 0) {
+             actual_id_cliente = clientRes.rows[0].id_cliente;
+             await client.query('UPDATE Clientes SET NIT_Facturacion = $1, Razon_Social = $2 WHERE ID_Cliente = $3', [nit, razon_social, actual_id_cliente]);
+         } else {
+             const newClient = await client.query(`INSERT INTO Clientes (Carnet_Identidad, Nombre, NIT_Facturacion, Razon_Social, Tipo_Cliente) VALUES ($1, $2, $3, $4, 'GENERAL') RETURNING ID_Cliente`, [nit, razon_social, nit, razon_social]);
+             actual_id_cliente = newClient.rows[0].id_cliente;
+         }
+      } else {
+         const genericRes = await client.query(`SELECT ID_Cliente FROM Clientes WHERE Carnet_Identidad = '0' LIMIT 1`);
+         if (genericRes.rows.length > 0) {
+             actual_id_cliente = genericRes.rows[0].id_cliente;
+         } else {
+             const newGeneric = await client.query(`INSERT INTO Clientes (Carnet_Identidad, Nombre, Tipo_Cliente) VALUES ('0', 'S/N', 'GENERAL') RETURNING ID_Cliente`);
+             actual_id_cliente = newGeneric.rows[0].id_cliente;
+         }
+      }
+
+      const facturaRes = await client.query('SELECT COALESCE(MAX(Nro_Factura), 0) + 1 AS next FROM Facturas');
+      const nroFactura = facturaRes.rows[0].next;
+      
+      const insertRes = await client.query(
+        'INSERT INTO Facturas (ID_Cliente, ID_Usuario, Tipo_Transaccion, ID_Transaccion, Nro_Factura, NIT_Cliente, Razon_Social, Monto_Total) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ID_Factura',
+        [actual_id_cliente, id_usuario, tipo_transaccion, nro_servicio, nroFactura, nit, razon_social, monto_total]
+      );
+      
+      await client.query('COMMIT');
+      res.json({ exito: true, nro_factura: nroFactura, id_factura: insertRes.rows[0].id_factura });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ exito: false, error: error.message });
+    } finally { client.release(); }
+  });
+  
+  // --- CONFIGURACION EMPRESA ---
+  app.get('/api/configuracion', async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO ${SCHEMA}`);
+      const resultado = await client.query('SELECT * FROM Configuracion LIMIT 1');
+      res.json({ exito: true, configuracion: resultado.rows[0] });
+    } catch (error) {
+      res.status(500).json({ exito: false, error: error.message });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.put('/api/configuracion', async (req, res) => {
+    const { razon_social, sucursal, direccion, telefono, ciudad, nit, autorizacion, leyenda } = req.body;
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO ${SCHEMA}`);
+      await client.query(
+        'UPDATE Configuracion SET Razon_Social=$1, Sucursal=$2, Direccion=$3, Telefono=$4, Ciudad=$5, NIT=$6, Autorizacion=$7, Leyenda=$8',
+        [razon_social, sucursal, direccion, telefono, ciudad, nit, autorizacion, leyenda]
+      );
+      res.json({ exito: true });
+    } catch (error) {
+      res.status(500).json({ exito: false, error: error.message });
+    } finally {
+      client.release();
+    }
+  });
+
+  // --- REPORTES FACTURAS EMITIDAS ---
+  app.get('/api/reportes/facturas_emitidas', async (req, res) => {
+    const { fecha_inicio, fecha_fin } = req.query;
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO ${SCHEMA}`);
+      let query = 'SELECT f.Nro_Factura AS "NRO_FACTURA", f.NIT_Cliente AS "NIT", f.Razon_Social AS "RAZON_SOCIAL", f.Monto_Total AS "MONTO", f.Tipo_Transaccion AS "TIPO", f.Fecha_Emision AS "FECHA", u.Nombre_Completo AS "CAJERO" FROM Facturas f JOIN Usuarios u ON f.ID_Usuario = u.ID_Usuario';
+      let params = [];
+      if (fecha_inicio && fecha_fin) {
+        query += " WHERE f.Fecha_Emision >= $1::timestamp AND f.Fecha_Emision <= $2::timestamp + interval '1 day'";
+        params = [fecha_inicio, fecha_fin];
+      }
+      query += " ORDER BY f.Fecha_Emision DESC";
+      const resultado = await client.query(query, params);
+      res.json({ exito: true, facturas: resultado.rows });
+    } catch (error) {
+      res.status(500).json({ exito: false, error: error.message });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.listen(process.env.PORT || 3000, () => console.log(`Servidor ${process.env.EMPRESA_NOMBRE || 'OXIMEDIC'} corriendo en puerto ${process.env.PORT || 3000}...`));
   } catch (error) { console.error('[ERROR CRITICO] Conexion Supabase: ', error); }
 }
 
@@ -172,6 +312,53 @@ app.get('/api/clientes-reporte', async (req, res) => {
     const resultado = await pool.query(`SELECT Carnet_Identidad AS "CI", Nombre AS "NOMBRE", Apellido AS "APELLIDO", Telefono AS "TELEFONO", Direccion AS "DIRECCION", Tipo_Cliente AS "TIPO_CLIENTE" FROM Clientes ORDER BY Apellido, Nombre`);
     res.json({ exito: true, clientes: resultado.rows });
   } catch (error) { res.status(500).json({ exito: false }); }
+});
+
+
+// NUEVO ENDPOINT: Historial Memoria - Último Alquiler de un Cliente
+app.get('/api/clientes/ultimo-alquiler/:ci', async (req, res) => {
+  const ci = req.params.ci;
+  try {
+    const query = `
+      SELECT c.categoria, c.costo_dia, r.fecha_alquiler 
+      FROM Alquileres a
+      JOIN Cilindros c ON a.id_cilindro = c.id_cilindro
+      JOIN Registro_Alquiler r ON a.id_alquiler = r.id_alquiler
+      WHERE a.carnet_identidad = $1
+      ORDER BY r.fecha_alquiler DESC
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [ci]);
+    if (result.rows.length > 0) {
+      res.json({ exito: true, ultimaRecarga: { categoria: result.rows[0].categoria, costo: result.rows[0].costo_dia, fecha: result.rows[0].fecha_alquiler } });
+    } else {
+      res.json({ exito: false, mensaje: "No hay historial previo" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// NUEVO ENDPOINT: Historial Memoria - Última Venta de un Cliente
+app.get('/api/clientes/ultima-venta/:ci', async (req, res) => {
+  const ci = req.params.ci;
+  try {
+    const query = `
+      SELECT fecha_venta, total
+      FROM Ventas
+      WHERE carnet_identidad = $1
+      ORDER BY fecha_venta DESC
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [ci]);
+    if (result.rows.length > 0) {
+      res.json({ exito: true, ultimaRecarga: { total: result.rows[0].total, fecha: result.rows[0].fecha_venta } });
+    } else {
+      res.json({ exito: false, mensaje: "No hay historial previo" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/clientes/filtrados', async (req, res) => {
@@ -255,7 +442,10 @@ app.post('/api/turnos/abrir', async (req, res) => {
   try {
     await pool.query(`INSERT INTO Turnos (ID_Usuario, Estado) VALUES ($1, 'ABIERTO')`, [id_usuario]);
     res.json({ exito: true });
-  } catch (err) { res.status(500).json({ exito: false }); }
+  } catch (err) { 
+    console.error('Error al abrir turno:', err);
+    res.status(500).json({ exito: false, error: err.message }); 
+  }
 });
 
 app.post('/api/turnos/cerrar', async (req, res) => {
@@ -263,7 +453,10 @@ app.post('/api/turnos/cerrar', async (req, res) => {
   try {
     await pool.query(`UPDATE Turnos SET Estado = 'CERRADO', Fecha_Cierre = CURRENT_TIMESTAMP WHERE ID_Usuario = $1 AND Estado = 'ABIERTO'`, [id_usuario]);
     res.json({ exito: true });
-  } catch (err) { res.status(500).json({ exito: false }); }
+  } catch (err) { 
+    console.error('Error al cerrar turno:', err);
+    res.status(500).json({ exito: false, error: err.message }); 
+  }
 });
 
 app.post('/api/login', async (req, res) => {
@@ -400,8 +593,8 @@ app.post('/api/recargas', async (req, res) => {
         let updateQuery = `UPDATE Clientes SET Nombre = $1, Tipo_Cliente = 'RECARGA'`;
         let queryParams = [cliente_nombre, cliente_ci];
         if (es_domicilio) {
-            updateQuery += `, Direccion_Domicilio = $3`;
-            queryParams = [cliente_nombre, cliente_ci, direccion_domicilio];
+          updateQuery += `, Direccion_Domicilio = $3`;
+          queryParams = [cliente_nombre, cliente_ci, direccion_domicilio];
         }
         updateQuery += ` WHERE Carnet_Identidad = $2`;
         await client.query(updateQuery, queryParams);
@@ -497,7 +690,24 @@ app.post('/api/alquileres/devolver', async (req, res) => {
   } finally { client.release(); }
 });
 
-app.get('/api/alquileres/activos', async (req, res) => {
+
+  app.post('/api/alquileres/cancelar', async (req, res) => {
+    const { id_alquiler, id_producto } = req.body;
+    const client = await pool.connect();
+    try {
+      await client.query(`SET search_path TO ${SCHEMA}`);
+      await client.query('BEGIN');
+      await client.query(`UPDATE Alquileres SET Estado_Alquiler = 'CANCELADO', Fecha_Devolucion_Real = CURRENT_TIMESTAMP WHERE ID_Alquiler = $1`, [id_alquiler]);
+      await client.query(`UPDATE Productos SET Stock_Disponible = Stock_Disponible + 1 WHERE ID_Producto = $1`, [id_producto]);
+      await client.query('COMMIT');
+      res.json({ exito: true });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ exito: false });
+    } finally { client.release(); }
+  });
+  
+  app.get('/api/alquileres/activos', async (req, res) => {
   try {
     const resultado = await pool.query(`SELECT a.ID_Alquiler AS "ID_ALQUILER", c.Carnet_Identidad AS "CARNET_IDENTIDAD", c.Nombre AS "NOMBRE", c.Apellido AS "APELLIDO", p.ID_Producto AS "ID_PRODUCTO", p.Nombre_Producto AS "NOMBRE_PRODUCTO", a.nro_servicio AS "NRO_SERVICIO", a.Fecha_Salida AS "FECHA_SALIDA", a.Costo_Por_Dia AS "COSTO_POR_DIA", a.Monto_Garantia AS "MONTO_GARANTIA", a.Estado_Botellon AS "ESTADO_BOTELLON", a.Fecha_Prevista AS "FECHA_PREVISTA", c.Telefono AS "TELEFONO", c.Direccion AS "DIRECCION" FROM Alquileres a JOIN Clientes c ON a.ID_Cliente = c.ID_Cliente JOIN Productos p ON a.ID_Producto = p.ID_Producto WHERE a.Estado_Alquiler = 'PRESTADO' ORDER BY a.Fecha_Salida DESC`);
     res.json({ exito: true, activos: resultado.rows });
@@ -533,7 +743,7 @@ app.get('/api/dashboard', async (req, res) => {
   const { idUsuario } = req.query;
   try {
     // 1. Verificar si hay un turno abierto
-    const turnoRes = await pool.query(`SELECT ID_Turno, Fecha_Apertura FROM Turnos WHERE ID_Usuario = $1 AND Estado = 'ABIERTO'`, [idUsuario]);
+    const turnoRes = await pool.query(`SELECT ID_Turno, Fecha_Apertura AS fecha_apertura FROM Turnos WHERE ID_Usuario = $1 AND Estado = 'ABIERTO'`, [idUsuario]);
     
     const cilindros = await pool.query(`SELECT COUNT(*) AS "EN_CALLE" FROM Alquileres WHERE Estado_Alquiler = 'PRESTADO'`);
     const stockVentas = await pool.query(`SELECT Nombre_Producto, Stock_Disponible FROM Productos WHERE Stock_Disponible <= 5 AND Estado = 'ACTIVO' AND (es_alquiler = FALSE OR es_alquiler IS NULL)`);
